@@ -9,5 +9,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  base: '/seating-app/' // Добавьте эту строку
+  base: '/seating-app/', // Убедитесь, что это точно соответствует названию репозитория
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true // Для отладки
+  }
 })
