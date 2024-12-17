@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 interface SelectedSeat {
-  row: number;
-  seat: number;
+  type: 'seat' | 'table';
+  row?: number;
+  seat?: number;
+  table?: number;
 }
 
 interface SeatsData {
@@ -20,24 +22,39 @@ const SeatingChart = () => {
   const chartRef = useRef<HTMLDivElement>(null);
 
   const handleSeatClick = (row: number, seat: number) => {
-    setSelectedSeat({ row, seat });
-    setName(seats[`${row}-${seat}`] || '');
+    setSelectedSeat({ type: 'seat', row, seat });
+    const key = `seat-${row}-${seat}`;
+    setName(seats[key] || '');
+    setShowDialog(true);
+  };
+
+  const handleTableClick = (table: number) => {
+    setSelectedSeat({ type: 'table', table });
+    const key = `table-${table}`;
+    setName(seats[key] || '');
     setShowDialog(true);
   };
 
   const handleSave = () => {
     if (!selectedSeat) return;
     
+    const key = selectedSeat.type === 'seat' 
+      ? `seat-${selectedSeat.row}-${selectedSeat.seat}`
+      : `table-${selectedSeat.table}`;
+
     if (name.trim()) {
       setSeats(prev => ({
         ...prev,
-        [`${selectedSeat.row}-${selectedSeat.seat}`]: name.trim()
+        [key]: name.trim()
       }));
     } else {
-      const newSeats = { ...seats };
-      delete newSeats[`${selectedSeat.row}-${selectedSeat.seat}`];
-      setSeats(newSeats);
+      setSeats(prev => {
+        const newSeats = { ...prev };
+        delete newSeats[key];
+        return newSeats;
+      });
     }
+
     setShowDialog(false);
     setName('');
   };
@@ -45,10 +62,34 @@ const SeatingChart = () => {
   const copySeatingPlan = () => {
     let plan = 'План рассадки:\n\n';
     
-    const sortedSeats = Object.entries(seats)
+    // Сначала столы
+    const tableEntries = Object.entries(seats)
+      .filter(([key]) => key.startsWith('table-'))
       .map(([key, name]) => {
-        const [row, seat] = key.split('-');
+        const [_, table] = key.split('-');
         return {
+          type: 'table',
+          table: parseInt(table),
+          name
+        };
+      })
+      .sort((a, b) => a.table - b.table);
+
+    if (tableEntries.length > 0) {
+      plan += 'За столами:\n';
+      tableEntries.forEach(({table, name}) => {
+        plan += `Стол ${table}: ${name}\n`;
+      });
+      plan += '\n';
+    }
+
+    // Затем места в зале
+    const seatEntries = Object.entries(seats)
+      .filter(([key]) => key.startsWith('seat-'))
+      .map(([key, name]) => {
+        const [_, row, seat] = key.split('-');
+        return {
+          type: 'seat',
           row: parseInt(row),
           seat: parseInt(seat),
           name
@@ -61,16 +102,20 @@ const SeatingChart = () => {
         return a.seat - b.seat;
       });
     
-    sortedSeats.forEach(({row, seat, name}) => {
-      plan += `Ряд ${row}, Место ${seat}: ${name}\n`;
-    });
+    if (seatEntries.length > 0) {
+      plan += 'Места в зале:\n';
+      seatEntries.forEach(({row, seat, name}) => {
+        plan += `Ряд ${row}, Место ${seat}: ${name}\n`;
+      });
+    }
     
     navigator.clipboard.writeText(plan);
   };
 
   const renderSeat = (row: number, seat: number) => {
-    const isOccupied = seats[`${row}-${seat}`];
-    const occupantName = seats[`${row}-${seat}`] || '';
+    const key = `seat-${row}-${seat}`;
+    const occupantName = seats[key];
+    const isOccupied = !!occupantName;
     
     const seatStyle = `w-20 h-16 m-1 rounded-lg flex flex-col items-center justify-center p-1
       ${isOccupied ? 'bg-blue-500 text-white' : 'bg-gray-200'} 
@@ -84,7 +129,7 @@ const SeatingChart = () => {
       >
         <div className="text-xs">{seat}</div>
         {occupantName && (
-          <div className="text-xs mt-1 font-medium overflow-hidden text-center w-full">
+          <div className="text-xs mt-1 font-medium text-center w-full" style={{ lineHeight: '1.1' }}>
             {occupantName}
           </div>
         )}
@@ -94,14 +139,28 @@ const SeatingChart = () => {
 
   const renderTables = () => (
     <div className="flex justify-center mb-8 space-x-4">
-      {[1, 2, 3].map(table => (
-        <div
-          key={`table-${table}`}
-          className="w-24 h-16 bg-gray-300 rounded-lg flex items-center justify-center"
-        >
-          Стол {table}
-        </div>
-      ))}
+      {[1, 2, 3].map(table => {
+        const key = `table-${table}`;
+        const occupantName = seats[key];
+        const isOccupied = !!occupantName;
+
+        return (
+          <div
+            key={`table-${table}`}
+            onClick={() => handleTableClick(table)}
+            className={`w-32 p-2 ${isOccupied ? 'bg-blue-500 text-white' : 'bg-gray-300'} 
+              rounded-lg flex flex-col items-center cursor-pointer hover:opacity-80`}
+            style={{ minHeight: occupantName ? 'auto' : '4rem' }}
+          >
+            <div>Стол {table}</div>
+            {occupantName && (
+              <div className="text-xs mt-1 font-medium text-center w-full break-words">
+                {occupantName}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
@@ -145,15 +204,12 @@ const SeatingChart = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {seats[`${selectedSeat?.row}-${selectedSeat?.seat}`] 
-                ? 'Изменить данные места' 
-                : 'Занять место'}
+              {selectedSeat?.type === 'seat' 
+                ? `${seats[`seat-${selectedSeat.row}-${selectedSeat.seat}`] ? 'Изменить' : 'Добавить'} человека (Ряд ${selectedSeat.row}, Место ${selectedSeat.seat})`
+                : `${seats[`table-${selectedSeat?.table}`] ? 'Изменить' : 'Добавить'} человека за столом ${selectedSeat?.table}`}
             </DialogTitle>
           </DialogHeader>
           <div className="my-4">
-            <p className="mb-2">
-              Ряд {selectedSeat?.row}, Место {selectedSeat?.seat}
-            </p>
             <Input
               type="text"
               placeholder="Введите фамилию"
@@ -167,7 +223,7 @@ const SeatingChart = () => {
               Отмена
             </Button>
             <Button onClick={handleSave} className="bg-blue-500 text-white">
-              Сохранить
+              {name.trim() ? 'Сохранить' : 'Очистить'}
             </Button>
           </DialogFooter>
         </DialogContent>
